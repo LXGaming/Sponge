@@ -37,6 +37,7 @@ import org.spongepowered.api.data.value.Value;
 import org.spongepowered.api.data.value.ValueContainer;
 import org.spongepowered.api.entity.EntityArchetype;
 import org.spongepowered.api.fluid.FluidState;
+import org.spongepowered.api.registry.Registry;
 import org.spongepowered.api.world.biome.Biome;
 import org.spongepowered.api.world.schematic.Palette;
 import org.spongepowered.api.world.schematic.Schematic;
@@ -120,6 +121,11 @@ public class SpongeSchematic extends AbstractVolumeBuffer implements Schematic {
     }
 
     @Override
+    public Collection<EntityArchetypeEntry> getEntityArchetypesByPosition() {
+        return this.volume.getEntityArchetypesByPosition();
+    }
+
+    @Override
     public Collection<EntityArchetype> getEntityArchetypes(final Predicate<EntityArchetype> filter) {
         return this.volume.getEntityArchetypes(filter);
     }
@@ -194,7 +200,7 @@ public class SpongeSchematic extends AbstractVolumeBuffer implements Schematic {
     }
 
     @Override
-    public boolean supports(final int x, final int y, final int z, final Key<?> key) {
+    public boolean supports(final int x, final int y, final int z, final Key<@NonNull ?> key) {
         final Stream<Supplier<Boolean>> dataRetrievalStream = Stream.of(
             () -> this.getBlock(x, y, z).supports(key),
             () -> this.getFluid(x, y, z).supports(key),
@@ -341,7 +347,7 @@ public class SpongeSchematic extends AbstractVolumeBuffer implements Schematic {
 
     @Override
     public Biome getBiome(final int x, final int y, final int z) {
-        return this.getBiome(x, y, z);
+        return this.volume.getBiome(x, y, z);
     }
 
     @Override
@@ -352,6 +358,16 @@ public class SpongeSchematic extends AbstractVolumeBuffer implements Schematic {
 
     @Override
     public boolean setBiome(final int x, final int y, final int z, final Biome biome) {
-        return this.setBiome(x, y, z, biome);
+        return this.volume.setBiome(x, y, z, biome);
+    }
+
+    @Override
+    public Registry<BlockType> getBlockStateRegistry() {
+        return this.volume.getBlockStateRegistry();
+    }
+
+    @Override
+    public Registry<Biome> getBiomeRegistry() {
+        return this.volume.getBiomeRegistry();
     }
 }

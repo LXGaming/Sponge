@@ -506,6 +506,7 @@ public final class TransactionalCaptureSupplier implements ICaptureSupplier {
             final EventByTransaction<E> element = new EventByTransaction<>(event.get(), transactions, parent, pointer);
             builder.add(element);
             ((ImmutableMultimap.Builder) transactionPostEventBuilder).put(pointer.getTransactionType(), event.get());
+
             if (frame != null) {
                 frame.pushCause(event.get());
             }

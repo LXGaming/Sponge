@@ -61,6 +61,13 @@ public class ObjectArrayMutableEntityArchetypeBuffer extends AbstractVolumeBuffe
     }
 
     @Override
+    public Collection<EntityArchetypeEntry> getEntityArchetypesByPosition() {
+        return this.entities.stream()
+            .map(tuple -> EntityArchetypeEntry.of(tuple.getSecond(), tuple.getFirst()))
+            .collect(Collectors.toList());
+    }
+
+    @Override
     public Collection<EntityArchetype> getEntityArchetypes(final Predicate<EntityArchetype> filter) {
         return this.entities.stream()
             .map(Tuple::getSecond)

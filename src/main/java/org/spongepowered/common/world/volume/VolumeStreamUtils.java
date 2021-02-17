@@ -38,8 +38,7 @@ import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.chunk.ImposterProtoChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
-import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.spongepowered.api.block.entity.BlockEntity;
@@ -53,6 +52,8 @@ import org.spongepowered.api.world.volume.stream.VolumeElement;
 import org.spongepowered.api.world.volume.stream.VolumeStream;
 import org.spongepowered.common.accessor.world.level.block.entity.BlockEntityAccessor;
 import org.spongepowered.common.util.VecHelper;
+import org.spongepowered.common.world.volume.buffer.biome.ObjectArrayMutableBiomeBuffer;
+import org.spongepowered.common.world.volume.buffer.block.ArrayMutableBlockBuffer;
 import org.spongepowered.common.world.volume.buffer.blockentity.ObjectArrayMutableBlockEntityBuffer;
 import org.spongepowered.common.world.volume.buffer.entity.ObjectArrayMutableEntityBuffer;
 import org.spongepowered.math.vector.Vector3d;
@@ -176,7 +177,7 @@ public final class VolumeStreamUtils {
 
     @NotNull
     public static Stream<Map.Entry<BlockPos, net.minecraft.world.entity.Entity>> getEntitiesFromChunk(
-        Vector3i min, Vector3i max, LevelChunk chunk
+        final Vector3i min, final Vector3i max, final LevelChunk chunk
     ) {
         return Arrays.stream(chunk.getEntitySections())
             .flatMap(Collection::stream)
@@ -210,7 +211,7 @@ public final class VolumeStreamUtils {
 
     @NotNull
     public static BiConsumer<BlockPos, net.minecraft.world.level.block.entity.BlockEntity> getBlockEntityOrCloneToBackingVolume(
-        boolean shouldCarbonCopy, ObjectArrayMutableBlockEntityBuffer backingVolume, final @Nullable Level level
+        final boolean shouldCarbonCopy, final ObjectArrayMutableBlockEntityBuffer backingVolume, final @Nullable Level level
     ) {
         return shouldCarbonCopy ? (pos, tile) -> {
             final CompoundTag nbt = tile.save(new CompoundTag());
@@ -227,6 +228,27 @@ public final class VolumeStreamUtils {
             }
             backingVolume.addBlockEntity(pos.getX(), pos.getY(), pos.getZ(), (BlockEntity) cloned);
         } : (pos, tile) -> {
+        };
+    }
+
+    public static BiConsumer<BlockPos, BlockState> getOrCopyBlockState(
+        final boolean shouldCarbonCopy, final ArrayMutableBlockBuffer backingVolume
+    ) {
+        return (pos, blockState) -> {
+            if (shouldCarbonCopy) {
+                backingVolume.setBlock(pos, blockState);
+            }
+        };
+    }
+
+    public static <R extends Region<R>> BiFunction<BlockPos, R, Tuple<BlockPos, BlockState>> getBlockStateFromThisOrCopiedVolume(
+        final boolean shouldCarbonCopy, final ArrayMutableBlockBuffer backingVolume
+    ) {
+        return (blockPos, world) -> {
+            final BlockState tileEntity = shouldCarbonCopy
+                ? backingVolume.getBlock(blockPos)
+                : ((LevelReader) world).getBlockState(blockPos);
+            return new Tuple<>(blockPos, tileEntity);
         };
     }
 
@@ -326,6 +348,120 @@ public final class VolumeStreamUtils {
         };
     }
 
+    public static <W extends Region<W>> VolumeStream<W, org.spongepowered.api.block.BlockState> generateBlockStream(
+        final LevelReader reader, final Vector3i min, final Vector3i max, final StreamOptions options
+    ) {
+        VolumeStreamUtils.validateStreamArgs(Objects.requireNonNull(min, "min"), Objects.requireNonNull(max, "max"),
+            Objects.requireNonNull(options, "options"));
+
+        final boolean shouldCarbonCopy = options.carbonCopy();
+        final Vector3i size = max.sub(min).add(1, 1 ,1);
+        final @MonotonicNonNull ArrayMutableBlockBuffer backingVolume;
+        if (shouldCarbonCopy) {
+            backingVolume = new ArrayMutableBlockBuffer(min, size);
+        } else {
+            backingVolume = null;
+        }
+        return VolumeStreamUtils.<W, org.spongepowered.api.block.BlockState, net.minecraft.world.level.block.state.BlockState, ChunkAccess, BlockPos>generateStream(
+            min,
+            max,
+            options,
+            // Ref
+            (W) reader,
+            // IdentityFunction
+            VolumeStreamUtils.getOrCopyBlockState(shouldCarbonCopy, backingVolume),
+            // ChunkAccessor
+            VolumeStreamUtils.getChunkAccessorByStatus(reader, options.loadingStyle().generateArea()),
+            // Biome by block position
+            (key, biome) -> key,
+            // Entity Accessor
+            VolumeStreamUtils.getBlockStatesForSections(min, max),
+            // Filtered Position Entity Accessor
+            VolumeStreamUtils.getBlockStateFromThisOrCopiedVolume(shouldCarbonCopy, backingVolume)
+        );
+    }
+
+    public static <R extends Region<R>> VolumeStream<R, BlockEntity> getBlockEntityStream(final LevelReader reader, final Vector3i min, final Vector3i max, final StreamOptions options) {
+        VolumeStreamUtils.validateStreamArgs(Objects.requireNonNull(min, "min"), Objects.requireNonNull(max, "max"),
+            Objects.requireNonNull(options, "options"));
+
+        final boolean shouldCarbonCopy = options.carbonCopy();
+        final Vector3i size = max.sub(min).add(1, 1 ,1);
+        final @MonotonicNonNull ObjectArrayMutableBlockEntityBuffer backingVolume;
+        if (shouldCarbonCopy) {
+            backingVolume = new ObjectArrayMutableBlockEntityBuffer(min, size);
+        } else {
+            backingVolume = null;
+        }
+
+        return VolumeStreamUtils.<R, BlockEntity, net.minecraft.world.level.block.entity.BlockEntity, ChunkAccess, BlockPos>generateStream(
+            min,
+            max,
+            options,
+            // Ref
+            (R) reader,
+            // IdentityFunction
+            VolumeStreamUtils.getBlockEntityOrCloneToBackingVolume(shouldCarbonCopy, backingVolume, reader instanceof Level ? (Level) reader : null),
+            // ChunkAccessor
+            VolumeStreamUtils.getChunkAccessorByStatus(reader, options.loadingStyle().generateArea()),
+            // TileEntity by block pos
+            (key, tileEntity) -> key,
+            // TileEntity Accessor
+            (chunk) -> chunk instanceof LevelChunk
+                ? ((LevelChunk) chunk).getBlockEntities().entrySet().stream()
+                .filter(entry -> VecHelper.inBounds(entry.getKey(), min, max))
+                : Stream.empty(),
+            // Filtered Position TileEntity Accessor
+            (blockPos, world) -> {
+                final net.minecraft.world.level.block.entity.@Nullable BlockEntity tileEntity = shouldCarbonCopy
+                    ? backingVolume.getTileEntity(blockPos)
+                    : ((LevelReader) world).getBlockEntity(blockPos);
+                return new Tuple<>(blockPos, tileEntity);
+            }
+        );
+    }
+
+    public static <R extends Region<R>> VolumeStream<R, org.spongepowered.api.world.biome.Biome> getBiomeStream(final LevelReader reader, final Vector3i min, final Vector3i max, final StreamOptions options) {
+        VolumeStreamUtils.validateStreamArgs(Objects.requireNonNull(min, "min"), Objects.requireNonNull(max, "max"),
+            Objects.requireNonNull(options, "options"));
+
+        final boolean shouldCarbonCopy = options.carbonCopy();
+        final Vector3i size = max.sub(min).add(1, 1 ,1);
+        final @MonotonicNonNull ObjectArrayMutableBiomeBuffer backingVolume;
+        if (shouldCarbonCopy) {
+            backingVolume = new ObjectArrayMutableBiomeBuffer(min, size);
+        } else {
+            backingVolume = null;
+        }
+        return VolumeStreamUtils.<R, org.spongepowered.api.world.biome.Biome, net.minecraft.world.level.biome.Biome, ChunkAccess, BlockPos>generateStream(
+            min,
+            max,
+            options,
+            // Ref
+            (R) reader,
+            // IdentityFunction
+            (pos, biome) -> {
+                if (shouldCarbonCopy) {
+                    backingVolume.setBiome(pos, biome);
+                }
+            },
+            // ChunkAccessor
+            VolumeStreamUtils.getChunkAccessorByStatus(reader, options.loadingStyle().generateArea()),
+            // Biome by key
+            (key, biome) -> key,
+            // Entity Accessor
+            VolumeStreamUtils.getBiomesForChunkByPos(reader, min, max)
+            ,
+            // Filtered Position Entity Accessor
+            (blockPos, world) -> {
+                final net.minecraft.world.level.biome.Biome biome = shouldCarbonCopy
+                    ? backingVolume.getNativeBiome(blockPos.getX(), blockPos.getY(), blockPos.getZ())
+                    : ((LevelReader) world).getBiome(blockPos);
+                return new Tuple<>(blockPos, biome);
+            }
+        );
+    }
+
     public static <R extends Volume, API, MC, Section, KeyReference> VolumeStream<R, API> generateStream(
         final Vector3i min,
         final Vector3i max,
@@ -349,7 +485,12 @@ public final class VolumeStreamUtils {
             .map(pos -> chunkAccessor.apply(ref, pos));
 
         return VolumeStreamUtils.generateStreamInternal(
-            options, ref, identityFunction, entityToKey, entityAccessor, filteredPositionEntityAccessor, worldSupplier,
+            options,
+            identityFunction,
+            entityToKey,
+            entityAccessor,
+            filteredPositionEntityAccessor,
+            worldSupplier,
             sectionStream
         );
     }
@@ -371,7 +512,6 @@ public final class VolumeStreamUtils {
         final Stream<Section> sectionStream = Stream.of(section);
         return VolumeStreamUtils.generateStreamInternal(
             options,
-            ref,
             identityFunction,
             entityToKey,
             entityAccessor,
@@ -382,11 +522,13 @@ public final class VolumeStreamUtils {
     }
 
     private static <R extends Volume, API, MC, Section, KeyReference> SpongeVolumeStream<R, API> generateStreamInternal(
-        StreamOptions options, R ref, BiConsumer<KeyReference, MC> identityFunction,
-        BiFunction<BlockPos, MC, KeyReference> entityToKey,
-        Function<Section, Stream<Map.Entry<BlockPos, MC>>> entityAccessor,
-        BiFunction<KeyReference, R, Tuple<BlockPos, MC>> filteredPositionEntityAccessor, Supplier<R> worldSupplier,
-        Stream<Section> sectionStream
+        final StreamOptions options,
+        final BiConsumer<KeyReference, MC> identityFunction,
+        final BiFunction<BlockPos, MC, KeyReference> entityToKey,
+        final Function<Section, Stream<Map.Entry<BlockPos, MC>>> entityAccessor,
+        final BiFunction<KeyReference, R, Tuple<BlockPos, MC>> filteredPositionEntityAccessor,
+        final Supplier<R> worldSupplier,
+        final Stream<Section> sectionStream
     ) {
         // This effectively creates a weakly referenced object supplier casting the MC variant to the API variant
         // without consideration, assuming the MC variant is always mixed in to implement the API variant.
@@ -434,7 +576,7 @@ public final class VolumeStreamUtils {
         }
         // And finally, the complete stream turning objects into VolumeElements.
         final Stream<VolumeElement<R, API>> volumeStreamBacker = filteredPosStream
-            .map(pos -> filteredPositionEntityAccessor.apply(pos, ref))
+            .map(pos -> filteredPositionEntityAccessor.apply(pos, worldSupplier.get()))
             .filter(tuple -> Objects.nonNull(tuple.getB()))
             .map(elementGenerator);
         return new SpongeVolumeStream<>(volumeStreamBacker, worldSupplier);

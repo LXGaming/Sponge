@@ -44,6 +44,7 @@ import org.spongepowered.common.util.Constants;
 import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.nbt.CompoundTag;
+import org.spongepowered.math.vector.Vector3d;
 
 public class SpongeEntityArchetypeBuilder extends AbstractDataBuilder<EntityArchetype> implements EntityArchetype.Builder {
 
@@ -51,6 +52,7 @@ public class SpongeEntityArchetypeBuilder extends AbstractDataBuilder<EntityArch
     DataContainer entityData;
     CompoundTag compound;
     DataManipulator.Mutable manipulator;
+    Vector3d position;
 
     public SpongeEntityArchetypeBuilder() {
         super(EntityArchetype.class, Constants.Sponge.EntityArchetype.BASE_VERSION);
@@ -111,7 +113,9 @@ public class SpongeEntityArchetypeBuilder extends AbstractDataBuilder<EntityArch
         compound.remove(Constants.UUID);
         compound.remove(Constants.UUID_MOST);
         compound.remove(Constants.UUID_LEAST);
+        compound.remove(Constants.Entity.ENTITY_POSITION);
         compound.putBoolean(Constants.Sponge.EntityArchetype.REQUIRES_EXTRA_INITIAL_SPAWN, true);
+        this.position = entity.getPosition();
         this.compound = compound;
         return this;
     }

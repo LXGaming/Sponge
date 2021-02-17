@@ -76,9 +76,7 @@ public final class ByteArrayMutableBiomeBuffer extends AbstractBiomeBuffer imple
 
         final byte biomeId = this.biomes[this.getIndex(x, y, z)];
         return this.palette.get(biomeId & 255, Sponge.getServer().registries())
-            .orElseGet(Sponge.getServer().registries()
-                .registry(RegistryTypes.BIOME)
-                .value(Biomes.OCEAN)
+            .orElseGet(() -> Biomes.OCEAN.get(Sponge.getServer().registries())
             );
     }
 
